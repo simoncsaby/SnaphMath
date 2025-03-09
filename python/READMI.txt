@@ -1,0 +1,102 @@
+# SnapMath | Matematikai Egyenletfelismerő AI 
+
+Ez a projekt egy mély tanulás alapú rendszert valósít meg matematikai egyenletek felismerésére képekből. A rendszer képes mind kézzel írt, mind gépelt/nyomtatott egyenletek felismerésére, és azok LaTeX formátumra való konvertálására.
+
+## Funkciók
+
+- Kézzel írt matematikai egyenletek felismerése (CROHME adathalmaz)
+- Gépelt/nyomtatott egyenletek felismerése (im2latex-100k adathalmaz)
+- Egyenletek konvertálása LaTeX formátumra
+- GPU-gyorsított képzés a gyorsabb tanulás érdekében
+- Vizualizációs eszközök a képzési folyamat és az eredmények elemzéséhez
+
+## Telepítés
+1. 
+   ```bash
+   cd python/
+   ```
+
+2. Függőségek telepítése:
+
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+3. Adathalmazok letöltése:
+
+   ```bash
+   python download_datasets.py
+   ```
+
+## Használat
+
+### Modell képzése
+
+A modell videókártyán történő képzéséhez futtassa:
+
+```bash
+python main.py --mode train
+```
+
+### Egyenlet felismerése képből
+
+```bash
+python main.py --mode test --image test_images/egyenlet1.png
+```
+
+### Eredmények vizualizálása
+
+```bash
+python visualize_results.py --history --test
+```
+
+## Fájlstruktúra
+
+- `config.py` - Konfigurációs beállítások
+- `data_processing.py` - Adatok betöltése és feldolgozása
+- `download_datasets.py` - Adathalmazok letöltése
+- `main.py` - Fő program
+- `model.py` - Neurális háló modell definíciója
+- `prediction.py` - Képből egyenlet felismerése
+- `utils.py` - Segédfüggvények
+- `visualize_results.py` - Eredmények vizualizálása
+
+## Könyvtárszerkezet
+
+```
+math-equation-recognizer/
+├── data/                  # Adatfájlok
+│   ├── crohme/            # CROHME adathalmaz
+│   ├── im2latex/          # im2latex adathalmaz
+│   └── combined/          # Feldolgozott adatok
+├── models/                # Mentett modellek
+├── logs/                  # Képzési naplók
+├── results/               # Vizualizációs eredmények
+└── test_images/           # Tesztképek
+```
+
+## Adathalmazok
+
+- **CROHME**: Kézzel írt matematikai egyenletek
+  - Forrás: https://www.isical.ac.in/~crohme/
+  
+- **im2latex-100k**: Gépelt/nyomtatott egyenletek
+  - Forrás: https://github.com/harvardnlp/im2markup
+
+## Modell architektúra
+
+A rendszer a következő komponensekből áll:
+
+1. **CNN enkóder**: A képből jellemzőket nyer ki
+2. **LSTM dekóder**: A jellemzőkből LaTeX egyenletet generál
+3. **Figyelmi mechanizmus**: Segít a modellnek a kép megfelelő részeire fókuszálni
+
+## Példa eredmények
+
+![Példa felismerés](results/custom_predictions.png)
+
+## Hivatkozások
+
+- [CROHME: Competition on Recognition of Online Handwritten Mathematical Expressions](https://www.isical.ac.in/~crohme/)
+- [Harvard NLP: Im2markup](https://github.com/harvardnlp/im2markup)
+- [Show, Attend and Tell: Neural Image Caption Generation with Visual Attention](https://arxiv.org/abs/1502.03044)
