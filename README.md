@@ -1,4 +1,4 @@
-# SnapMath 📸➕✖️ | 2025 SZOFTVERFEJLESZTÉS | MAROSVÁSÁRHELYI KAR | SAPIENTIA ERDÉLYI MAGYAR TUDOMÁNYEGYETEM
+# SnapMath 📸➕✖️ | DISSZERTÁCIÓ |2025 SZOFTVERFEJLESZTÉS | MAROSVÁSÁRHELYI KAR | SAPIENTIA ERDÉLYI MAGYAR TUDOMÁNYEGYETEM
 
 TÉMAVEZETŐ: DR. Szántó Zoltán (https://zszanto.github.io/)
 SnapMath egy AI-alapú mobilalkalmazás, amely segít matematikai egyenletek gyors és pontos megoldásában! Csak készíts egy fényképet az egyenletről, és az alkalmazás azonnal megoldja azt!
