@@ -98,12 +98,10 @@ def recognize_equation():
         else:
             return jsonify({'error': 'Hiányzó kép adat'}), 400
         
-        # Felismerő futtatása
-        recognizer = MathEquationRecognizer(handwritten=handwritten)
+        recognizer = MathEquationRecognizer(use_gpu=False, handwritten=handwritten)
         result = recognizer.recognize(image)
         
         if result['success']:
-            # Wolfram Alpha link
             wolfram_query = urllib.parse.quote(result['wolfram_format'])
             wolfram_url = f"https://www.wolframalpha.com/input/?i={wolfram_query}"
             
