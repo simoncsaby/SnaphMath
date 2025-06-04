@@ -1,40 +1,123 @@
-# SnapMath 📸➕✖️ | DISSZERTÁCIÓ |2025 SZOFTVERFEJLESZTÉS | MAROSVÁSÁRHELYI KAR | SAPIENTIA ERDÉLYI MAGYAR TUDOMÁNYEGYETEM
+# Math OCR API
 
-TÉMAVEZETŐ: DR. Szántó Zoltán (https://zszanto.github.io/)
-SnapMath egy AI-alapú mobilalkalmazás, amely segít matematikai egyenletek gyors és pontos megoldásában! Csak készíts egy fényképet az egyenletről, és az alkalmazás azonnal megoldja azt!
+Matematikai egyenletek felismerése képekről EasyOCR segítségével.
 
-## 🚀 Főbb Funkciók
-- 📷 **AI Képfelismerés** – Fényképezd le az egyenleted, és hagyd, hogy az AI értelmezze!
-- 🧠 **Intelligens Megoldáskereső** – Megoldja a legtöbb matematikai problémát
-- ⚡ **Gyors és pontos** – Azonnali megoldások fejlett számítási algoritmusokkal.
-- 🎨 **Modern és felhasználóbarát UI** – Letisztult és könnyen kezelhető design.
-- 📊 **Támogatott egyenlettípusok**: 
-  - Lineáris és kvadratikus egyenletek
-  - Számítási kifejezések
-  - Deriválás és integrálás
-  - Mátrix- és vektorszámítások *(hamarosan!)*
+## 🚀 Gyors telepítés
 
-## 📲 Telepítés és Használat
+### Lokális futtatás
+```bash
+git clone <repo-url>
+cd math-ocr-api
+pip install -r requirements.txt
+python app.py
+```
 
-1. **Clone-olás** a GitHub-ról:
-   ```sh
-   git clone https://github.com/simoncsaby/SnapMath.git
-   cd SnapMath
-   ```
-2. **Szükséges csomagok telepítése:**
-   ```sh
-   npm install   # React Native esetén
-   pip install -r requirements.txt  # Python backend esetén
-   ```
-3. **Futtatás Android/iOS eszközön:**
-   ```sh
-   npm run android  # vagy npm run ios
-   ```
+### Hosting (Railway/Render/Heroku)
+1. Fork-old ezt a repót
+2. Csatlakoztasd a hosting szolgáltatáshoz
+3. Automatikus deployment
 
-## 🛠️ Tech Stack
-- **Frontend:** React Native + Expo
-- **Backend:** Python
-- **AI & OCR:** OpenCV, TensorFlow, Tesseract-OCR
-- 
----
-Made with ❤️ by Simon Csaba 🚀
+## 📝 API használat
+
+### Képfeltöltés (JSON)
+```bash
+curl -X POST http://localhost:5000/recognize \
+  -H "Content-Type: application/json" \
+  -d '{
+    "image": "base64_encoded_image_here",
+    "handwritten": false
+  }'
+```
+
+### Képfeltöltés (Form data)
+```bash
+curl -X POST http://localhost:5000/recognize \
+  -F "image=@equation.jpg" \
+  -F "handwritten=false"
+```
+
+### Válasz formátum
+```json
+{
+  "success": true,
+  "equation": "2x + 3 = 7",
+  "wolfram_format": "2*x + 3 = 7",
+  "wolfram_url": "https://www.wolframalpha.com/input/?i=2*x%2B3%3D7",
+  "confidence": "medium",
+  "handwritten_mode": false,
+  "timestamp": "2024-01-01T12:00:00"
+}
+```
+
+## 🔧 Támogatott formátumok
+
+- **Képek**: PNG, JPG, JPEG, GIF, BMP, WEBP
+- **Max méret**: 16MB
+- **Típusok**: Nyomtatott és kézírásos egyenletek
+
+## 📋 Endpoints
+
+- `GET /` - API információk
+- `GET /health` - Állapot ellenőrzés  
+- `POST /recognize` - Egyenlet felismerés
+
+## 🌐 Ingyenes hosting lehetőségek
+
+1. **Railway**: Egyszerű GitHub integráció
+2. **Render**: Ingyenes tier 750 óra/hónap
+3. **Heroku**: Hobby tier (fizetős de megbízható)
+
+### Railway deploy
+1. Menj a [railway.app](https://railway.app) oldalra
+2. GitHub repo csatlakoztatása
+3. Auto-deploy engedélyezése
+
+### Render deploy  
+1. Menj a [render.com](https://render.com) oldalra
+2. "New Web Service" → GitHub repo
+3. Python környezet automatikus felismerés
+
+## 🛠️ Fejlesztés
+
+```bash
+# Virtuális környezet
+python -m venv venv
+source venv/bin/activate  # Linux/Mac
+venv\Scripts\activate     # Windows
+
+# Függőségek telepítése
+pip install -r requirements.txt
+
+# Futtatás debug módban
+export FLASK_ENV=development
+python app.py
+```
+
+## 📦 Projekt struktúra
+
+```
+math-ocr-api/
+├── app.py              # Flask alkalmazás
+├── math_recognizer.py  # OCR logika
+├── requirements.txt    # Python csomagok
+├── Procfile           # Hosting konfig
+└── README.md          # Ez a fájl
+```
+
+## ⚡ Teljesítmény tippek
+
+- Használj `opencv-python-headless` csomagot szerver környezetben
+- EasyOCR első futtatáskor letölti a modelleket (~100MB)
+- Hosting szolgáltatásoknál figyelj a memória limitekre
+
+## 🐛 Hibaelhárítás
+
+**"Module not found" hiba**: 
+```bash
+pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+**Memória hiba**: Csökkentsd a kép felbontását vagy használj kisebb OCR modellt
+
+**Timeout**: Első kérés lassabb lehet (modell betöltés miatt)
