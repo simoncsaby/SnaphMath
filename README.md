@@ -61,12 +61,6 @@ curl -X POST http://localhost:5000/recognize \
 - `GET /health` - Állapot ellenőrzés  
 - `POST /recognize` - Egyenlet felismerés
 
-## 🌐 Ingyenes hosting lehetőségek
-
-1. **Railway**: Egyszerű GitHub integráció
-2. **Render**: Ingyenes tier 750 óra/hónap
-3. **Heroku**: Hobby tier (fizetős de megbízható)
-
 ### Railway deploy
 1. Menj a [railway.app](https://railway.app) oldalra
 2. GitHub repo csatlakoztatása
@@ -116,8 +110,3 @@ math-ocr-api/
 ```bash
 pip install --upgrade pip
 pip install -r requirements.txt
-```
-
-**Memória hiba**: Csökkentsd a kép felbontását vagy használj kisebb OCR modellt
-
-**Timeout**: Első kérés lassabb lehet (modell betöltés miatt)
