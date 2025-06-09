@@ -8,8 +8,7 @@ import base64
 import os
 from datetime import datetime
 import urllib.parse
-from math_recognizer import MathEquationRecognizer
-from math_solver import MathSolver  # Az új solver modul
+from math_solver import MathSolver
 
 # Flask app inicializálás
 app = Flask(__name__)
@@ -19,8 +18,27 @@ CORS(app)
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # Max 16MB
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'}
 
-# Math solver inicializálása
+# Math solver inicializálása (ez gyors)
 math_solver = MathSolver()
+
+# LAZY LOADING - EasyOCR csak akkor töltődik be, amikor szükség van rá
+_math_recognizer = None
+
+def get_math_recognizer():
+    """Lazy loading EasyOCR - csak első használatkor"""
+    global _math_recognizer
+    
+    if _math_recognizer is None:
+        print("EasyOCR inicializálása... (ez ~30-60 másodpercet vehet igénybe)")
+        try:
+            from math_recognizer import MathEquationRecognizer
+            _math_recognizer = MathEquationRecognizer(use_gpu=False, handwritten=False)
+            print("EasyOCR sikeresen inicializálva!")
+        except Exception as e:
+            print(f"EasyOCR inicializálási hiba: {e}")
+            raise
+    
+    return _math_recognizer
 
 def allowed_file(filename):
     """Ellenőrzi, hogy a fájl kiterjesztése engedélyezett-e"""
@@ -45,106 +63,59 @@ def home():
     """Főoldal - API információk"""
     return jsonify({
         'name': 'Math OCR + Solver API',
-        'version': '2.0',
+        'version': '2.1',
         'status': 'online',
+        'ocr_status': 'lazy_loaded',  # Jelzi hogy lazy loading
         'endpoints': {
             '/recognize': 'POST - Matematikai egyenlet felismerése képről',
             '/solve': 'POST - Matematikai egyenlet megoldása szövegből',
             '/full_solve': 'POST - Kép feldolgozása és egyenlet megoldása',
             '/health': 'GET - API állapot'
         },
-        'features': [
-            'OCR felismerés EasyOCR-rel',
-            'Lépésenkénti megoldás SymPy-val',
-            'Wolfram Alpha integráció',
-            'LaTeX formátum támogatás',
-            'Többféle egyenlet típus (lineáris, másodfokú, polinomiális)'
-        ]
+        'memory_optimization': 'enabled'
     })
 
 @app.route('/health', methods=['GET'])
 def health_check():
     """Állapot ellenőrzés"""
+    ocr_status = 'not_loaded' if _math_recognizer is None else 'loaded'
+    
     return jsonify({
         'status': 'healthy',
         'timestamp': datetime.now().isoformat(),
         'components': {
-            'ocr': 'available',
+            'ocr': ocr_status,
             'solver': 'available',
             'wolfram_integration': 'available'
+        },
+        'memory_info': {
+            'lazy_loading': True,
+            'workers': 1
         }
     })
 
-@app.route('/recognize', methods=['POST'])
-def recognize_equation():
-    """Matematikai egyenlet felismerése (eredeti funkcionalitás)"""
+# WARMUP endpoint - OCR előzetes betöltéséhez
+@app.route('/warmup', methods=['POST'])
+def warmup_ocr():
+    """EasyOCR előzetes betöltése (opcionális)"""
     try:
-        image = None
-        handwritten = False
-        
-        # JSON formátum (base64)
-        if request.is_json:
-            data = request.get_json()
-            if 'image' not in data:
-                return jsonify({'error': 'Hiányzó kép adat'}), 400
-            
-            image = decode_base64_image(data['image'])
-            handwritten = data.get('handwritten', False)
-        
-        # Multipart form data
-        elif 'image' in request.files:
-            file = request.files['image']
-            if file.filename == '':
-                return jsonify({'error': 'Nincs kiválasztott fájl'}), 400
-            
-            if file and allowed_file(file.filename):
-                img_stream = io.BytesIO(file.read())
-                img = Image.open(img_stream)
-                image = np.array(img)
-                
-                if len(image.shape) == 3 and image.shape[2] == 4:
-                    image = cv2.cvtColor(image, cv2.COLOR_RGBA2RGB)
-                
-                handwritten = request.form.get('handwritten', 'false').lower() == 'true'
-            else:
-                return jsonify({'error': 'Nem támogatott fájlformátum'}), 400
-        
-        else:
-            return jsonify({'error': 'Hiányzó kép adat'}), 400
-        
-        recognizer = MathEquationRecognizer(use_gpu=False, handwritten=handwritten)
-        result = recognizer.recognize(image)
-        
-        if result['success']:
-            wolfram_query = urllib.parse.quote(result['wolfram_format'])
-            wolfram_url = f"https://www.wolframalpha.com/input/?i={wolfram_query}"
-            
-            return jsonify({
-                'success': True,
-                'equation': result['equation'],
-                'wolfram_format': result['wolfram_format'],
-                'wolfram_url': wolfram_url,
-                'confidence': result['confidence'],
-                'handwritten_mode': handwritten,
-                'timestamp': datetime.now().isoformat()
-            })
-        else:
-            return jsonify({
-                'success': False,
-                'error': result['error'],
-                'timestamp': datetime.now().isoformat()
-            }), 500
-            
+        print("Warmup: EasyOCR betöltése...")
+        recognizer = get_math_recognizer()
+        return jsonify({
+            'success': True,
+            'message': 'EasyOCR sikeresen betöltve',
+            'timestamp': datetime.now().isoformat()
+        })
     except Exception as e:
         return jsonify({
             'success': False,
-            'error': str(e),
+            'error': f'Warmup hiba: {str(e)}',
             'timestamp': datetime.now().isoformat()
         }), 500
 
 @app.route('/solve', methods=['POST'])
 def solve_equation():
-    """Matematikai egyenlet megoldása szövegből"""
+    """Matematikai egyenlet megoldása szövegből - MEMÓRIA OPTIMALIZÁLT"""
     try:
         if not request.is_json:
             return jsonify({'error': 'JSON formátum szükséges'}), 400
@@ -156,11 +127,10 @@ def solve_equation():
         equation = data['equation']
         include_latex = data.get('include_latex', True)
         
-        # Egyenlet megoldása
+        # Egyenlet megoldása - ez nem használ sok memóriát
         result = math_solver.solve_step_by_step(equation)
         
         if result['success']:
-            # Wolfram Alpha URL generálása
             wolfram_query = urllib.parse.quote(equation)
             wolfram_url = f"https://www.wolframalpha.com/input/?i={wolfram_query}"
             
@@ -196,13 +166,15 @@ def solve_equation():
             'timestamp': datetime.now().isoformat()
         }), 500
 
-@app.route('/full_solve', methods=['POST'])
-def full_solve():
-    """Teljes folyamat: OCR + megoldás"""
+@app.route('/recognize', methods=['POST'])
+def recognize_equation():
+    """Matematikai egyenlet felismerése - LAZY LOADING"""
     try:
+        # CSAK AKKOR tölti be az EasyOCR-t, amikor szükség van rá
+        recognizer = get_math_recognizer()
+        
         image = None
         handwritten = False
-        include_latex = True
         
         # JSON formátum (base64)
         if request.is_json:
@@ -212,9 +184,78 @@ def full_solve():
             
             image = decode_base64_image(data['image'])
             handwritten = data.get('handwritten', False)
-            include_latex = data.get('include_latex', True)
         
         # Multipart form data
+        elif 'image' in request.files:
+            file = request.files['image']
+            if file.filename == '':
+                return jsonify({'error': 'Nincs kiválasztott fájl'}), 400
+            
+            if file and allowed_file(file.filename):
+                img_stream = io.BytesIO(file.read())
+                img = Image.open(img_stream)
+                image = np.array(img)
+                
+                if len(image.shape) == 3 and image.shape[2] == 4:
+                    image = cv2.cvtColor(image, cv2.COLOR_RGBA2RGB)
+                
+                handwritten = request.form.get('handwritten', 'false').lower() == 'true'
+            else:
+                return jsonify({'error': 'Nem támogatott fájlformátum'}), 400
+        else:
+            return jsonify({'error': 'Hiányzó kép adat'}), 400
+        
+        # OCR feldolgozás
+        result = recognizer.recognize(image)
+        
+        if result['success']:
+            wolfram_query = urllib.parse.quote(result['wolfram_format'])
+            wolfram_url = f"https://www.wolframalpha.com/input/?i={wolfram_query}"
+            
+            return jsonify({
+                'success': True,
+                'equation': result['equation'],
+                'wolfram_format': result['wolfram_format'],
+                'wolfram_url': wolfram_url,
+                'confidence': result['confidence'],
+                'handwritten_mode': handwritten,
+                'timestamp': datetime.now().isoformat()
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': result['error'],
+                'timestamp': datetime.now().isoformat()
+            }), 500
+            
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'timestamp': datetime.now().isoformat()
+        }), 500
+
+@app.route('/full_solve', methods=['POST'])
+def full_solve():
+    """Teljes folyamat: OCR + megoldás - MEMÓRIA OPTIMALIZÁLT"""
+    try:
+        # EasyOCR lazy loading
+        recognizer = get_math_recognizer()
+        
+        image = None
+        handwritten = False
+        include_latex = True
+        
+        # Kép feldolgozás (ugyanaz mint eddig)
+        if request.is_json:
+            data = request.get_json()
+            if 'image' not in data:
+                return jsonify({'error': 'Hiányzó kép adat'}), 400
+            
+            image = decode_base64_image(data['image'])
+            handwritten = data.get('handwritten', False)
+            include_latex = data.get('include_latex', True)
+        
         elif 'image' in request.files:
             file = request.files['image']
             if file.filename == '':
@@ -232,12 +273,10 @@ def full_solve():
                 include_latex = request.form.get('include_latex', 'true').lower() == 'true'
             else:
                 return jsonify({'error': 'Nem támogatott fájlformátum'}), 400
-        
         else:
             return jsonify({'error': 'Hiányzó kép adat'}), 400
         
         # 1. lépés: OCR felismerés
-        recognizer = MathEquationRecognizer(use_gpu=False, handwritten=handwritten)
         ocr_result = recognizer.recognize(image)
         
         if not ocr_result['success']:
@@ -254,7 +293,6 @@ def full_solve():
         solve_result = math_solver.solve_step_by_step(equation)
         
         if not solve_result['success']:
-            # OCR eredményt adjuk vissza akkor is, ha a megoldás nem sikerült
             wolfram_query = urllib.parse.quote(ocr_result['wolfram_format'])
             wolfram_url = f"https://www.wolframalpha.com/input/?i={wolfram_query}"
             
@@ -308,51 +346,7 @@ def full_solve():
             'timestamp': datetime.now().isoformat()
         }), 500
 
-@app.route('/equation_types', methods=['GET'])
-def get_supported_equation_types():
-    """Támogatott egyenlet típusok listája"""
-    return jsonify({
-        'supported_types': [
-            {
-                'type': 'linear',
-                'description': 'Lineáris egyenletek (pl. 2x + 3 = 7)',
-                'examples': ['2*x + 5 = 11', '3*x - 4 = 2*x + 1']
-            },
-            {
-                'type': 'quadratic',
-                'description': 'Másodfokú egyenletek (pl. x² - 5x + 6 = 0)',
-                'examples': ['x**2 - 5*x + 6 = 0', '2*x**2 + 3*x - 1 = 0']
-            },
-            {
-                'type': 'polynomial',
-                'description': 'Magasabb fokú polinomok',
-                'examples': ['x**3 - 2*x**2 + x - 1 = 0', 'x**4 - 5*x**2 + 4 = 0']
-            },
-            {
-                'type': 'trigonometric',
-                'description': 'Trigonometrikus egyenletek',
-                'examples': ['sin(x) = 0.5', 'cos(2*x) = 1']
-            },
-            {
-                'type': 'exponential',
-                'description': 'Exponenciális és logaritmikus egyenletek',
-                'examples': ['exp(x) = 10', 'log(x) = 2']
-            },
-            {
-                'type': 'expression',
-                'description': 'Kifejezések egyszerűsítése és faktorizálása',
-                'examples': ['x**2 + 4*x + 4', '(x+1)*(x-1)']
-            }
-        ],
-        'features': [
-            'Lépésenkénti megoldás',
-            'LaTeX formátum támogatás',
-            'Wolfram Alpha integráció',
-            'Változók automatikus felismerése',
-            'Hibakezelés és validáció'
-        ]
-    })
-
+# Hiba handlerek
 @app.errorhandler(413)
 def request_entity_too_large(e):
     return jsonify({'error': 'A fájl túl nagy (max 16MB)'}), 413
