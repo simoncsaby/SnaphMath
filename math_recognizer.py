@@ -8,7 +8,7 @@ from typing import List, Tuple, Optional
 ocr_reader = None
 
 def get_ocr_reader():
-    """Lazy loading az OCR reader-hez - ugyanaz mint az eredeti"""
+    """Lazy loading az OCR reader-hez"""
     global ocr_reader
     if ocr_reader is None:
         print("EasyOCR inicializálása...")
@@ -18,7 +18,7 @@ def get_ocr_reader():
 class MathEquationRecognizer:
     """Matematikai egyenletek felismerése képekről"""
     
-    def __init__(self, use_gpu=False, handwritten=False):
+    def __init__(self, use_gpu=False, handwritten=True):
         """
         Inicializálás EasyOCR-rel - ugyanúgy mint az eredeti
         
@@ -26,11 +26,11 @@ class MathEquationRecognizer:
             use_gpu: GPU használata (ha elérhető)
             handwritten: Kézírás mód (True esetén speciális beállítások)
         """
-        # EasyOCR inicializálás (angol nyelv) - pontosan az eredeti módon
+        # EasyOCR inicializálás (angol nyelv)
         self.reader = get_ocr_reader()
         self.handwritten = handwritten
         
-        # Mathpix API credentials (opcionális) - megtartjuk az eredeti kompatibilitásért
+        # Mathpix API credentials (opcionális)
         self.mathpix_app_id = None
         self.mathpix_app_key = None
     
@@ -89,7 +89,62 @@ class MathEquationRecognizer:
             
             return binary
     
-    def detect_fraction_regions(self, image: np.ndarray, results: list) -> list:
+    def calculate_confidence(self, results: list, processed_results: list) -> float:
+        """
+        Confidence számítása az OCR eredmények alapján
+        
+        Args:
+            results: Eredeti OCR eredmények
+            processed_results: Feldolgozott eredmények
+            
+        Returns:
+            Confidence érték 0-1 között
+        """
+        if not results:
+            return 0.0
+        
+        # OCR confidence értékek átlaga
+        ocr_confidences = [result[2] for result in results if len(result) > 2]
+        avg_ocr_confidence = sum(ocr_confidences) / len(ocr_confidences) if ocr_confidences else 0.0
+        
+        # Feldolgozási minőség értékelése
+        processing_quality = 1.0
+        
+        # Csökkentjük a confidence-t, ha sok elem lett összevonva
+        original_count = len(results)
+        processed_count = len(processed_results)
+        if original_count > 0:
+            processing_ratio = processed_count / original_count
+            # Ha túl sok elemet vontunk össze, csökkentjük a confidence-t
+            if processing_ratio < 0.5:
+                processing_quality *= 0.8
+        
+        # Matematikai jellegű elemek detektálása
+        math_elements = 0
+        total_elements = len(processed_results)
+        
+        for result in processed_results:
+            text = result[1] if len(result) > 1 else ""
+            # Matematikai jelek keresése
+            if any(char in text for char in "=+-*/^()[]{}√∫∑∏αβγπ"):
+                math_elements += 1
+            # Számok keresése
+            if re.search(r'\d', text):
+                math_elements += 1
+        
+        # Matematikai tartalom arány
+        math_ratio = math_elements / max(total_elements, 1)
+        
+        # Végső confidence számítása (súlyozott átlag)
+        final_confidence = (
+            avg_ocr_confidence * 0.5 +           # OCR confidence 50%
+            processing_quality * 0.3 +           # Feldolgozási minőség 30%
+            math_ratio * 0.2                     # Matematikai tartalom 20%
+        )
+        
+        return min(max(final_confidence, 0.0), 1.0)  # 0-1 közé korlátozás
+    
+    def detect_fraction_regions(self, image: np.ndarray, results: list) -> Tuple[list, float]:
         """
         Törtek detektálása a felismert elemek pozíciója alapján
         
@@ -98,10 +153,12 @@ class MathEquationRecognizer:
             results: EasyOCR eredmények
             
         Returns:
-            Frissített eredmények törtekkel
+            Tuple: (Frissített eredmények törtekkel, feldolgozási confidence)
         """
         if not results:
-            return results
+            return results, 1.0
+        
+        processing_confidence = 1.0
         
         # Vízszintes vonalak detektálása (törtvonalak)
         edges = cv2.Canny(image, 50, 150)
@@ -122,6 +179,7 @@ class MathEquationRecognizer:
         # Elemek csoportosítása törtek szerint
         processed_indices = set()
         new_results = []
+        fractions_found = 0
         
         for i, result in enumerate(results):
             if i in processed_indices:
@@ -178,21 +236,29 @@ class MathEquationRecognizer:
                         # Tört szöveg formátum
                         fraction_text = f"({num_text})/({den_text})"
                         
-                        new_results.append((new_bbox, fraction_text, confidence))
+                        # Átlagos confidence a tört elemeiből
+                        avg_confidence = sum([r[1][2] for r in numerator_elems + denominator_elems]) / len(numerator_elems + denominator_elems)
+                        
+                        new_results.append((new_bbox, fraction_text, avg_confidence))
                         
                         # Jelöljük meg a feldolgozott elemeket
                         for idx, _ in numerator_elems + denominator_elems:
                             processed_indices.add(idx)
                         
                         fraction_found = True
+                        fractions_found += 1
                         break
             
             if not fraction_found and i not in processed_indices:
                 new_results.append(result)
         
-        return new_results
+        # Ha túl sok tört detektáltunk, csökkentjük a confidence-t
+        if fractions_found > len(results) * 0.3:  # Ha több mint 30% tört
+            processing_confidence *= 0.9
+        
+        return new_results, processing_confidence
     
-    def detect_mathematical_structures(self, results: list) -> list:
+    def detect_mathematical_structures(self, results: list) -> Tuple[list, float]:
         """
         Matematikai struktúrák felismerése pozíció alapján
         
@@ -200,10 +266,12 @@ class MathEquationRecognizer:
             results: OCR eredmények
             
         Returns:
-            Strukturált eredmények
+            Tuple: (Strukturált eredmények, feldolgozási confidence)
         """
         if not results:
-            return results
+            return results, 1.0
+        
+        processing_confidence = 1.0
         
         # Rendezés y koordináta szerint (sorok)
         sorted_by_y = sorted(results, key=lambda x: x[0][0][1])
@@ -228,6 +296,8 @@ class MathEquationRecognizer:
         
         # Kitevők és indexek detektálása
         structured_results = []
+        structures_found = 0
+        
         for line in lines:
             i = 0
             while i < len(line):
@@ -264,7 +334,10 @@ class MathEquationRecognizer:
                                        [next_bbox[1][0], next_bbox[1][1]], 
                                        [next_bbox[2][0], bbox[2][1]], 
                                        [bbox[3][0], bbox[3][1]]]
-                        structured_results.append((combined_bbox, combined_text, current[2]))
+                        # Átlagos confidence
+                        avg_confidence = (current[2] + next_elem[2]) / 2
+                        structured_results.append((combined_bbox, combined_text, avg_confidence))
+                        structures_found += 1
                         i += 2  # Mindkét elemet feldolgoztuk
                         continue
                     
@@ -277,7 +350,10 @@ class MathEquationRecognizer:
                                        [next_bbox[1][0], bbox[1][1]], 
                                        [next_bbox[2][0], next_bbox[2][1]], 
                                        [bbox[3][0], next_bbox[3][1]]]
-                        structured_results.append((combined_bbox, combined_text, current[2]))
+                        # Átlagos confidence
+                        avg_confidence = (current[2] + next_elem[2]) / 2
+                        structured_results.append((combined_bbox, combined_text, avg_confidence))
+                        structures_found += 1
                         i += 2  # Mindkét elemet feldolgoztuk
                         continue
                 
@@ -285,9 +361,13 @@ class MathEquationRecognizer:
                 structured_results.append(current)
                 i += 1
         
-        return structured_results
+        # Ha túl sok struktúrát detektáltunk, lehet hogy tévedés
+        if structures_found > len(results) * 0.4:  # Ha több mint 40% struktúra
+            processing_confidence *= 0.85
+        
+        return structured_results, processing_confidence
     
-    def recognize_from_image(self, image: np.ndarray) -> str:
+    def recognize_from_image(self, image: np.ndarray) -> Tuple[str, float]:
         """
         Szöveg felismerés EasyOCR-rel numpy array-ből
         
@@ -295,7 +375,7 @@ class MathEquationRecognizer:
             image: Kép numpy array formában
             
         Returns:
-            Felismert egyenlet szöveg formában
+            Tuple: (Felismert egyenlet szöveg formában, confidence érték)
         """
         # Előfeldolgozott kép készítése a struktúra detektáláshoz
         processed_image = self.preprocess_image(image)
@@ -303,11 +383,14 @@ class MathEquationRecognizer:
         # OCR futtatása
         results = self.reader.readtext(image)
         
+        if not results:
+            return "", 0.0
+        
         # Törtek detektálása
-        results = self.detect_fraction_regions(processed_image, results)
+        results, fraction_confidence = self.detect_fraction_regions(processed_image, results)
         
         # Matematikai struktúrák (kitevők, indexek) detektálása
-        results = self.detect_mathematical_structures(results)
+        results, structure_confidence = self.detect_mathematical_structures(results)
         
         # Szövegek összefűzése pozíció alapján rendezve
         sorted_results = sorted(results, key=lambda x: (x[0][0][1], x[0][0][0]))
@@ -333,7 +416,14 @@ class MathEquationRecognizer:
         # Tisztítás és formázás
         equation = self.clean_equation(equation)
         
-        return equation
+        # Confidence számítása
+        original_ocr_results = self.reader.readtext(image)
+        final_confidence = self.calculate_confidence(original_ocr_results, results)
+        
+        # Feldolgozási confidence-k figyelembevétele
+        final_confidence *= fraction_confidence * structure_confidence
+        
+        return equation, final_confidence
     
     def post_process_equation(self, equation: str) -> str:
         """
@@ -525,7 +615,7 @@ class MathEquationRecognizer:
             Dictionary a felismert egyenlettel és Wolfram formátummal
         """
         try:
-            equation = self.recognize_from_image(image)
+            equation, confidence = self.recognize_from_image(image)
             
             wolfram_format = self.convert_to_wolfram_format(equation)
             
@@ -533,11 +623,12 @@ class MathEquationRecognizer:
                 'success': True,
                 'equation': equation,
                 'wolfram_format': wolfram_format,
-                'confidence': 'medium'
+                'confidence': round(confidence, 3),
             }
             
         except Exception as e:
             return {
                 'success': False,
-                'error': str(e)
+                'error': str(e),
+                'confidence': 0,
             }
